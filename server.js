@@ -18,7 +18,8 @@ const visitRoutes = require('./routes/visits');
 const { router: deliveryRoutes } = require('./routes/delivery');
 
 const app = express();
-const PORT = process.env.BACKEND_PORT || process.env.PORT || 5000;
+// const PORT = process.env.BACKEND_PORT || process.env.PORT || 5000;
+const PORT = process.env.PORT || process.env.BACKEND_PORT || 5000;
 
 // Lazy DB initialization for Serverless / Vercel execution
 let dbReadyPromise = null;
