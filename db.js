@@ -149,6 +149,9 @@ async function initDB() {
     `);
 
     try {
+      await connection.execute(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_id VARCHAR(64)`);
+    } catch (_) {}
+    try {
       await connection.execute(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS status_history JSON`);
     } catch (_) {}
     try {

@@ -239,6 +239,16 @@ router.put('/profile', authenticate, async (req, res) => {
 // GET /api/auth/addresses
 router.get('/addresses', authenticate, async (req, res) => {
   try {
+    // Admin accounts must not have customer saved addresses
+    if (
+      req.user.role === 'admin' ||
+      req.user.role === 'SUPER_ADMIN' ||
+      req.user.role === 'SECONDARY_ADMIN' ||
+      req.user.isAdmin === true
+    ) {
+      return res.json({ success: true, addresses: [] });
+    }
+
     const [addresses] = await pool.execute(
       `SELECT * FROM addresses WHERE user_id = ? ORDER BY is_default DESC, created_at DESC`,
       [req.user.id]
@@ -252,6 +262,16 @@ router.get('/addresses', authenticate, async (req, res) => {
 // POST /api/auth/addresses
 router.post('/addresses', authenticate, async (req, res) => {
   try {
+    // Admins cannot create customer addresses
+    if (
+      req.user.role === 'admin' ||
+      req.user.role === 'SUPER_ADMIN' ||
+      req.user.role === 'SECONDARY_ADMIN' ||
+      req.user.isAdmin === true
+    ) {
+      return res.status(403).json({ success: false, message: 'Administrators do not maintain customer addresses.' });
+    }
+
     const { name, phone, line, city, state, pincode, isDefault } = req.body;
     const addressId = `addr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
 

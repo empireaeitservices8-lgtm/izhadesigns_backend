@@ -19,7 +19,7 @@ router.get('/customers', adminAuthOrLocal, async (req, res) => {
     );
 
     const [orderRows] = await pool.execute(
-      `SELECT customer_email, customer_phone, customer_name, shipping_address, total, created_at FROM orders ORDER BY created_at DESC`
+      `SELECT customer_email, customer_phone, customer_name, shipping_address, total, created_at, status FROM orders WHERE status NOT IN ('Cancelled', 'Failed') ORDER BY created_at DESC`
     );
 
     // Compute orders count and total spent per customer (by email and phone)

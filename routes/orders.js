@@ -36,6 +36,7 @@ function formatOrder(row) {
   return {
     id: row.id,
     orderNumber: row.order_number,
+    customerId: row.customer_id || null,
     customerName: row.customer_name,
     customerEmail: row.customer_email,
     customerPhone: row.customer_phone,
@@ -134,11 +135,11 @@ function checkTrackingRateLimit(ip) {
   return true;
 }
 
-// GET /api/orders - list orders (admin views all with filters, customer views own)
+// GET /api/orders - list orders (admin views all with filters, customer views only their own verified orders)
 router.get('/', optionalAuth, async (req, res) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   try {
-    const { email, phone, search, admin, my_orders } = req.query;
+    const { search, admin, my_orders } = req.query;
     let query = 'SELECT * FROM orders WHERE 1=1';
     const params = [];
 
@@ -148,30 +149,40 @@ router.get('/', optionalAuth, async (req, res) => {
     const isRefererAdmin = origin.includes('/admin') || (req.get('referer') || '').includes('/admin');
     const isAdminHeader = req.get('x-admin-request') === 'true' || admin === 'true';
 
-    // If request is from admin or local admin panel
-    const isAdmin = (req.user && (
+    const isRealAdmin = req.user && (
       req.user.role === 'admin' ||
       req.user.role === 'SUPER_ADMIN' ||
       req.user.role === 'SECONDARY_ADMIN' ||
       req.user.isAdmin === true
-    )) || ((isLocal || isRefererAdmin || isAdminHeader) && !my_orders && !email && !phone);
+    );
 
-    if (isAdmin && !my_orders) {
+    // Administrative access: strictly when authenticated as admin or from dedicated local admin panel
+    const allowAdminView = (isRealAdmin || (isLocal && isRefererAdmin && isAdminHeader)) && !my_orders;
+
+    if (allowAdminView) {
       if (search) {
         query += ' AND (order_number LIKE ? OR customer_name LIKE ? OR customer_email LIKE ? OR customer_phone LIKE ?)';
         const term = `%${search}%`;
         params.push(term, term, term, term);
       }
     } else if (req.user) {
-      // Normal customer sees their own orders
-      query += ' AND (customer_email = ? OR customer_phone = ?)';
-      params.push(req.user.email, req.user.phone || '');
-    } else if (email || phone) {
-      // Guest lookup
-      query += ' AND (customer_email = ? OR customer_phone = ?)';
-      params.push(email || '', phone || '');
+      // Authenticated customer: retrieve verified identity from database
+      const [uRows] = await pool.execute(
+        'SELECT id, email, phone FROM users WHERE id = ? LIMIT 1',
+        [req.user.id]
+      );
+      const verifiedId = uRows.length > 0 ? uRows[0].id : req.user.id;
+      const verifiedEmail = uRows.length > 0 ? (uRows[0].email || '').toLowerCase().trim() : (req.user.email || '').toLowerCase().trim();
+      const verifiedPhone = uRows.length > 0 ? (uRows[0].phone || '').trim() : (req.user.phone || '').trim();
+
+      query += ' AND (customer_id = ? OR (customer_email = ? AND customer_email != "") OR (customer_phone = ? AND customer_phone != ""))';
+      params.push(verifiedId, verifiedEmail, verifiedPhone);
     } else {
-      return res.status(401).json({ success: false, message: 'Authentication or search filter required.' });
+      // Unauthenticated non-admin callers cannot list orders
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required. Please sign in to view your orders.',
+      });
     }
 
     query += ' ORDER BY created_at DESC';
@@ -258,21 +269,74 @@ router.post('/track', async (req, res) => {
   }
 });
 
-// GET /api/orders/:id - get single order (by id, order_number, or phone)
-router.get('/:id', async (req, res) => {
+// GET /api/orders/:id - get single order with strict customer ownership validation
+router.get('/:id', optionalAuth, async (req, res) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   try {
     const param = req.params.id;
     const [rows] = await pool.execute(
-      'SELECT * FROM orders WHERE id = ? OR order_number = ? OR customer_phone = ? ORDER BY created_at DESC LIMIT 1',
-      [param, param, param]
+      'SELECT * FROM orders WHERE id = ? OR order_number = ? ORDER BY created_at DESC LIMIT 1',
+      [param, param]
     );
 
     if (rows.length === 0) {
       return res.status(404).json({ success: false, message: 'Order not found.' });
     }
 
-    res.json({ success: true, order: formatOrder(rows[0]) });
+    const order = rows[0];
+
+    // 1. Check if requester is Admin
+    const origin = req.get('origin') || req.get('referer') || '';
+    const host = req.get('host') || '';
+    const isLocal = host.includes('localhost') || host.includes('127.0.0.1') || origin.includes('localhost') || origin.includes('127.0.0.1');
+    const isRefererAdmin = origin.includes('/admin') || (req.get('referer') || '').includes('/admin');
+    const isAdminHeader = req.get('x-admin-request') === 'true' || req.query.admin === 'true';
+
+    const isRealAdmin = req.user && (
+      req.user.role === 'admin' ||
+      req.user.role === 'SUPER_ADMIN' ||
+      req.user.role === 'SECONDARY_ADMIN' ||
+      req.user.isAdmin === true
+    );
+
+    if (isRealAdmin || (isLocal && isRefererAdmin && isAdminHeader)) {
+      return res.json({ success: true, order: formatOrder(order) });
+    }
+
+    // 2. Unauthenticated direct access is blocked (guests must use /api/orders/track with phone verification)
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required to view order details.',
+      });
+    }
+
+    // 3. Strict customer ownership validation
+    const [uRows] = await pool.execute(
+      'SELECT id, email, phone FROM users WHERE id = ? LIMIT 1',
+      [req.user.id]
+    );
+    const verifiedId = uRows.length > 0 ? uRows[0].id : req.user.id;
+    const verifiedEmail = uRows.length > 0 ? (uRows[0].email || '').toLowerCase().trim() : (req.user.email || '').toLowerCase().trim();
+    const verifiedPhone = uRows.length > 0 ? (uRows[0].phone || '').trim() : (req.user.phone || '').trim();
+
+    const orderCustId = order.customer_id;
+    const orderEmail = (order.customer_email || '').toLowerCase().trim();
+    const orderPhone = (order.customer_phone || '').trim();
+
+    const isOwner =
+      (orderCustId && orderCustId === verifiedId) ||
+      (orderEmail && verifiedEmail && orderEmail === verifiedEmail) ||
+      (orderPhone && verifiedPhone && orderPhone === verifiedPhone);
+
+    if (!isOwner) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. You do not have permission to view this order.',
+      });
+    }
+
+    res.json({ success: true, order: formatOrder(order) });
   } catch (err) {
     console.error('Fetch order detail error:', err);
     res.status(500).json({ success: false, message: 'Failed to fetch order.' });
@@ -502,15 +566,18 @@ router.post('/', optionalAuth, async (req, res) => {
       },
     ]);
 
+    const authenticatedCustomerId = req.user?.id || null;
+
     await connection.execute(
       `INSERT INTO orders (
-        id, order_number, customer_name, customer_email, customer_phone,
+        id, order_number, customer_id, customer_name, customer_email, customer_phone,
         shipping_address, items, subtotal, discount, shipping_fee, total,
         status, status_history, payment_method, payment_status, coupon_code, coupon_discount, stock_deducted
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)`,
       [
         orderId,
         orderNumber,
+        authenticatedCustomerId,
         customerName.trim(),
         (customerEmail || '').trim(),
         customerPhone.trim(),

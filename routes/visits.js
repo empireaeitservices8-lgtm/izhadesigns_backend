@@ -9,9 +9,9 @@ router.get('/', async (req, res) => {
       'SELECT id, session_id as sessionId, type, page, product_name as productName, customer_name as customerName, created_at as at FROM visit_events ORDER BY created_at DESC LIMIT 1000'
     );
 
-    // Merge actual orders from database so customer reports reflect real purchases
+    // Merge actual orders from database so customer reports reflect real purchases (strictly completed/placed orders)
     const [orderRows] = await pool.execute(
-      'SELECT id, order_number, customer_name, items, created_at FROM orders ORDER BY created_at DESC'
+      "SELECT id, order_number, customer_name, items, created_at, status FROM orders WHERE status NOT IN ('Cancelled', 'Failed') ORDER BY created_at DESC"
     );
 
     const orderEvents = [];
@@ -23,11 +23,12 @@ router.get('/', async (req, res) => {
       const prodName = Array.isArray(items) && items.length > 0 ? items.map((it) => it.name).join(', ') : 'Izha Order';
       const atIso = ord.created_at instanceof Date ? ord.created_at.toISOString() : (ord.created_at ? new Date(ord.created_at).toISOString() : new Date().toISOString());
 
-      const alreadyHas = rows.some((r) => r.id === `ord_ev_${ord.id}` || r.sessionId === `sess_${ord.order_number}`);
+      const orderSessionId = `sess_ord_${ord.order_number || ord.id}`;
+      const alreadyHas = rows.some((r) => r.id === `ord_ev_${ord.id}` || r.sessionId === orderSessionId);
       if (!alreadyHas) {
         orderEvents.push({
           id: `ord_ev_${ord.id}`,
-          sessionId: `sess_${ord.order_number || ord.id}`,
+          sessionId: orderSessionId,
           type: 'order_placed',
           page: '/checkout',
           productName: prodName,
