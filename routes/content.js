@@ -26,10 +26,10 @@ router.get('/:key', async (req, res) => {
   try {
     const [rows] = await pool.execute('SELECT data, updated_at FROM site_settings WHERE key_name = ?', [req.params.key]);
     if (rows.length === 0) {
-      return res.json({ success: true, key: req.params.key, data: null, updatedAt: null });
+      return res.json({ success: true, key: req.params.key, data: null, value: null, updatedAt: null });
     }
     const data = typeof rows[0].data === 'string' ? JSON.parse(rows[0].data) : rows[0].data;
-    res.json({ success: true, key: req.params.key, data, updatedAt: rows[0].updated_at });
+    res.json({ success: true, key: req.params.key, data, value: data, updatedAt: rows[0].updated_at });
   } catch (err) {
     console.error('Fetch content error:', err);
     res.status(500).json({ success: false, message: 'Failed to fetch content.' });
@@ -39,7 +39,7 @@ router.get('/:key', async (req, res) => {
 // PUT /api/content/:key - Admin update site content
 router.put('/:key', adminAuthOrLocal, async (req, res) => {
   try {
-    const { data } = req.body;
+    const data = req.body.data !== undefined ? req.body.data : req.body.value;
     if (data === undefined) {
       return res.status(400).json({ success: false, message: 'Data payload is required.' });
     }
