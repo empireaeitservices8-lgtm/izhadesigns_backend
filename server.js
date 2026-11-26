@@ -16,6 +16,7 @@
 // const adminRoutes = require('./routes/admin');
 // const visitRoutes = require('./routes/visits');
 // const { router: deliveryRoutes } = require('./routes/delivery');
+// const paymentRoutes = require('./routes/payment');
 
 // const app = express();
 // // const PORT = process.env.BACKEND_PORT || process.env.PORT || 5000;
@@ -113,6 +114,8 @@
 // app.use('/api/admin', adminRoutes);
 // app.use('/api/visits', visitRoutes);
 // app.use('/api/delivery-settings', deliveryRoutes);
+// app.use('/api', paymentRoutes);
+// app.use('/api/payment', paymentRoutes);
 
 // // Global Error Handler
 // app.use((err, req, res, next) => {
@@ -166,6 +169,7 @@ const contentRoutes = require('./routes/content');
 const adminRoutes = require('./routes/admin');
 const visitRoutes = require('./routes/visits');
 const { router: deliveryRoutes } = require('./routes/delivery');
+const paymentRoutes = require('./routes/payment');
 
 const app = express();
 
@@ -283,6 +287,8 @@ app.use('/api/content', contentRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/visits', visitRoutes);
 app.use('/api/delivery-settings', deliveryRoutes);
+app.use('/api', paymentRoutes);
+app.use('/api/payment', paymentRoutes);
 
 // Handle unknown routes
 app.use((req, res) => {

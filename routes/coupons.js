@@ -179,7 +179,8 @@ router.put('/:id', adminAuthOrLocal, async (req, res) => {
 // DELETE /api/coupons/:id - Admin delete coupon
 router.delete('/:id', adminAuthOrLocal, async (req, res) => {
   try {
-    await pool.execute('DELETE FROM coupons WHERE id = ?', [req.params.id]);
+    const param = req.params.id;
+    await pool.execute('DELETE FROM coupons WHERE id = ? OR UPPER(code) = UPPER(?)', [param, param]);
     res.json({ success: true, message: 'Coupon deleted successfully.' });
   } catch (err) {
     console.error('Delete coupon error:', err);

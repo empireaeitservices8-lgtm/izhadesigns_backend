@@ -326,22 +326,36 @@ async function seedInitialData(connection) {
     }
   }
 
-  // Check if coupons exist
-  const [couponCount] = await connection.execute('SELECT COUNT(*) as count FROM coupons');
-  if (couponCount[0].count === 0) {
-    const defaultCoupons = [
-      { id: 'cpn-1', code: 'BLOOM10', type: 'percent', value: 10, min_order: 999, first_order_only: 0, active: 1, expiry: '2026-12-31', used_count: 42 },
-      { id: 'cpn-2', code: 'FIRST15', type: 'percent', value: 15, min_order: 1299, first_order_only: 1, active: 1, expiry: '2026-12-31', used_count: 28 },
-      { id: 'cpn-3', code: 'IZHA200', type: 'flat', value: 200, min_order: 1799, first_order_only: 0, active: 1, expiry: '2026-11-30', used_count: 19 },
-    ];
-    for (const c of defaultCoupons) {
-      await connection.execute(
-        `INSERT INTO coupons (id, code, type, value, min_order, first_order_only, active, expiry, used_count)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [c.id, c.code, c.type, c.value, c.min_order, c.first_order_only, c.active, c.expiry, c.used_count]
-      );
+  // Check if coupons have ever been seeded
+  let couponsAlreadySeeded = false;
+  try {
+    const [cSeeded] = await connection.execute('SELECT data FROM site_settings WHERE key_name = ?', ['coupons_seeded']);
+    if (cSeeded.length > 0) couponsAlreadySeeded = true;
+  } catch (_) {}
+
+  if (!couponsAlreadySeeded) {
+    const [couponCount] = await connection.execute('SELECT COUNT(*) as count FROM coupons');
+    if (couponCount[0].count === 0) {
+      const defaultCoupons = [
+        { id: 'cpn-1', code: 'BLOOM10', type: 'percent', value: 10, min_order: 999, first_order_only: 0, active: 1, expiry: '2026-12-31', used_count: 42 },
+        { id: 'cpn-2', code: 'FIRST15', type: 'percent', value: 15, min_order: 1299, first_order_only: 1, active: 1, expiry: '2026-12-31', used_count: 28 },
+        { id: 'cpn-3', code: 'IZHA200', type: 'flat', value: 200, min_order: 1799, first_order_only: 0, active: 1, expiry: '2026-11-30', used_count: 19 },
+      ];
+      for (const c of defaultCoupons) {
+        await connection.execute(
+          `INSERT INTO coupons (id, code, type, value, min_order, first_order_only, active, expiry, used_count)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [c.id, c.code, c.type, c.value, c.min_order, c.first_order_only, c.active, c.expiry, c.used_count]
+        );
+      }
+      console.log('[TiDB] Default coupons seeded.');
     }
-    console.log('[TiDB] Default coupons seeded.');
+    try {
+      await connection.execute(
+        'INSERT INTO site_settings (key_name, data) VALUES (?, ?)',
+        ['coupons_seeded', JSON.stringify({ seeded: true })]
+      );
+    } catch (_) {}
   }
 
   // Seed default website pages if not present

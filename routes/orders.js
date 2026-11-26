@@ -568,6 +568,9 @@ router.post('/', optionalAuth, async (req, res) => {
 
     const authenticatedCustomerId = req.user?.id || null;
 
+    const isCOD = paymentMethod === 'COD' || paymentMethod === 'Cash on Delivery';
+    const finalPaymentStatus = req.body.paymentStatus || (isCOD ? 'Pending' : 'Paid');
+
     await connection.execute(
       `INSERT INTO orders (
         id, order_number, customer_id, customer_name, customer_email, customer_phone,
@@ -590,7 +593,7 @@ router.post('/', optionalAuth, async (req, res) => {
         'Order Placed',
         initialHistory,
         paymentMethod || 'COD',
-        paymentMethod === 'COD' ? 'Pending' : 'Paid',
+        finalPaymentStatus,
         appliedCouponCode,
         couponDiscount,
       ]
